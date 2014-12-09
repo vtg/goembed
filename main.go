@@ -142,20 +142,20 @@ func createFuncFile() {
           return
         }
 
-        // send compressed content if applicable
-
         mime := mime.TypeByExtension(path.Ext(name))
 
         w.Header().Set("Last-Modified", modtime.UTC().Format(http.TimeFormat))
         w.Header().Set("Content-Type", mime)
-        w.WriteHeader(200)
 
         if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && f.Comp() {
+          // send compressed content if applicable
           w.Header().Set("Content-Encoding", "gzip")
           w.Header().Set("Content-Length", f.Size(true))
+          w.WriteHeader(200)
           w.Write(f.cdata())
         } else {
           w.Header().Set("Content-Length", f.Size(false))
+          w.WriteHeader(200)
           w.Write(f.pdata())
         }
       }
