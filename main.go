@@ -73,10 +73,15 @@ func createFuncFile() {
     )
 
     type assetFile struct {
+      // contains plain data
       pdata func() []byte
+      // contains compressed data
       cdata func() []byte
+      // size of plain data
       psize uint64
+      // size of compressed data
       csize uint64
+      // File ModTime
       time  int64
     }
 
@@ -84,6 +89,7 @@ func createFuncFile() {
       return time.Unix(e.time, 0)
     }
 
+    // Size returns size of file data
     func (e *assetFile) Size(comp bool) string {
       if comp {
         return fmt.Sprint(e.csize)
@@ -91,12 +97,14 @@ func createFuncFile() {
       return fmt.Sprint(e.psize)
     }
 
+    // Comp returns true if file has compressed version
     func (e *assetFile) Comp() bool {
       return e.csize > 0
     }
 
     type assetFS map[string]*assetFile
 
+    // Open returns asset file or error if not found
     func (fs assetFS) Open(name string) (*assetFile, error) {
       i, ok := fs[name]
       if !ok {
@@ -106,6 +114,7 @@ func createFuncFile() {
       return i, nil
     }
 
+    // Asset returns asset file plain data or error if not found
     func Asset(name string) ([]byte, error) {
       f, err := _bindata.Open(name)
       if err != nil {
@@ -114,6 +123,7 @@ func createFuncFile() {
       return f.pdata(), nil
     }
 
+    // AssetZip returns asset file compressed data or error if not found
     func AssetZip(name string) ([]byte, error) {
       f, err := _bindata.Open(name)
       if err != nil {
@@ -122,6 +132,7 @@ func createFuncFile() {
       return f.cdata(), nil
     }
 
+    // serveAssets returns handler function for assets in given directory
     func serveAssets(prefix string) func(w http.ResponseWriter, r *http.Request) {
       return func(w http.ResponseWriter, r *http.Request) {
         name := prefix + r.URL.Path
