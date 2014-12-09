@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	pkg     string
-	output  string
-	gzipOff bool
+	pkgname    string
+	output     string
+	nocompress bool
 
 	N = 0
 
@@ -33,9 +33,9 @@ type File struct {
 }
 
 func main() {
-	flag.StringVar(&pkg, "pkg", "main", "package name")
+	flag.StringVar(&pkgname, "pkgname", "main", "package name")
 	flag.StringVar(&output, "o", "assets", "output file name")
-	flag.BoolVar(&gzipOff, "nz", false, "don't add gzip version")
+	flag.BoolVar(&nocompress, "nc", false, "don't add compressed version")
 	flag.Parse()
 
 	createDataFile()
@@ -48,7 +48,7 @@ func createDataFile() {
 
 	defer file.Close()
 
-	fmt.Fprintln(file, "package main")
+	fmt.Fprintln(file, "package "+pkgname)
 	for _, v := range flag.Args() {
 		filepath.Walk(v, walkpath)
 	}
@@ -60,9 +60,8 @@ func createFuncFile() {
 	file, _ = os.Create(name)
 
 	defer file.Close()
-
+	fmt.Fprintln(file, "package "+pkgname)
 	fmt.Fprint(file, `
-    package main
 
     import (
       "fmt"
@@ -202,8 +201,16 @@ func addFile(f os.FileInfo, path string, fb []byte) (err error) {
 
 	varN := fmt.Sprintf("bf%d", N)
 
-	cb := compressed(fb)
-	csize := int64(len(cb))
+	var csize int64
+	var cb []byte
+
+	if nocompress {
+		cb = []byte{}
+		csize = f.Size()
+	} else {
+		cb = compressed(fb)
+		csize = int64(len(cb))
+	}
 
 	_, err = fmt.Fprintf(file, "var __%s = []byte(\"%s\")\n\n", varN, convert(fb))
 	_, err = fmt.Fprintf(file, "func _%s() []byte {\n return __%s\n }\n\n", varN, varN)
