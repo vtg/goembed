@@ -8,27 +8,29 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
 
-var pkg string
-var output string
-var gzipOff bool
+var (
+	pkg     string
+	output  string
+	gzipOff bool
+
+	N = 0
+
+	files = map[string]File{}
+	file  *os.File
+)
 
 type File struct {
-	Func string
-	Size int64
-	Time time.Time
+	Func  string
+	Size  int64
+	CSize int64
+	Time  time.Time
 }
-
-var N = 0
-
-var files = map[string]File{}
-var file *os.File
 
 func main() {
 	flag.StringVar(&pkg, "pkg", "main", "package name")
@@ -72,32 +74,29 @@ func createFuncFile() {
     )
 
     type assetFile struct {
-      data func() []byte
-      size string
-      time int64
-    }
-
-    func (e *assetFile) Read() []byte {
-      return e.data()
+      pdata func() []byte
+      cdata func() []byte
+      psize uint64
+      csize uint64
+      time  int64
     }
 
     func (e *assetFile) ModTime() time.Time {
       return time.Unix(e.time, 0)
     }
 
-    func (e *assetFile) Size() string {
-      return e.size
+    func (e *assetFile) Size(comp bool) string {
+      if comp {
+        return fmt.Sprint(e.csize)
+      }
+      return fmt.Sprint(e.psize)
+    }
+
+    func (e *assetFile) Comp() bool {
+      return e.csize > 0
     }
 
     type assetFS map[string]*assetFile
-
-    func (fs assetFS) ZipName(name string) (string, bool) {
-      zipName := name + ".gz"
-      if _, ok := fs[zipName]; ok {
-        return zipName, ok
-      }
-      return name, false
-    }
 
     func (fs assetFS) Open(name string) (*assetFile, error) {
       i, ok := fs[name]
@@ -113,29 +112,24 @@ func createFuncFile() {
       if err != nil {
         return nil, err
       }
-      return f.Read(), nil
+      return f.pdata(), nil
     }
 
     func AssetZip(name string) ([]byte, error) {
-      return Asset(name + ".gz")
+      f, err := _bindata.Open(name)
+      if err != nil {
+        return nil, err
+      }
+      return f.cdata(), nil
     }
 
     func serveAssets(prefix string) func(w http.ResponseWriter, r *http.Request) {
       return func(w http.ResponseWriter, r *http.Request) {
-        var f *assetFile
-        var err error
-
         name := prefix + r.URL.Path
-        ext := path.Ext(name)
 
-        // send encoded content if applicable
-        sendZip := strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
+        f, err := _bindata.Open(name)
 
-        if sendZip {
-          name, sendZip = _bindata.ZipName(name)
-        }
-
-        if f, err = _bindata.Open(name); err != nil {
+        if err != nil {
           http.NotFound(w, r)
           return
         }
@@ -148,18 +142,22 @@ func createFuncFile() {
           return
         }
 
-        mime := mime.TypeByExtension(ext)
+        // send compressed content if applicable
 
-        if sendZip {
-          w.Header().Set("Content-Encoding", "gzip")
-        }
+        mime := mime.TypeByExtension(path.Ext(name))
 
         w.Header().Set("Last-Modified", modtime.UTC().Format(http.TimeFormat))
         w.Header().Set("Content-Type", mime)
-        w.Header().Set("Content-Length", f.Size())
-
         w.WriteHeader(200)
-        w.Write(f.Read())
+
+        if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && f.Comp() {
+          w.Header().Set("Content-Encoding", "gzip")
+          w.Header().Set("Content-Length", f.Size(true))
+          w.Write(f.cdata())
+        } else {
+          w.Header().Set("Content-Length", f.Size(false))
+          w.Write(f.pdata())
+        }
       }
     }
   `)
@@ -173,7 +171,7 @@ func createFuncFile() {
 
 	for _, k := range keys {
 		v := files[k]
-		fmt.Fprintf(file, "\"%s\": &assetFile{%s, \"%d\", %v},\n", k, v.Func, v.Size, v.Time.Unix())
+		fmt.Fprintf(file, "\"%s\": &assetFile{_%s, _c%s, %d, %d, %v},\n", k, v.Func, v.Func, v.Size, v.CSize, v.Time.Unix())
 	}
 	fmt.Fprintln(file, "}")
 	exec.Command("gofmt", "-w", name).Output()
@@ -194,39 +192,41 @@ func walkpath(fpath string, f os.FileInfo, err error) error {
 		return err
 	}
 
-	addFile(f, fpath, fb, false)
-
-	if !gzipOff && path.Ext(fpath) != ".gz" {
-		addFile(f, fpath+".gz", fb, true)
-	}
+	addFile(f, fpath, fb)
 
 	return err
 }
 
-func addFile(f os.FileInfo, path string, fb []byte, zip bool) (err error) {
-	var b bytes.Buffer
-	var l int64
+func addFile(f os.FileInfo, path string, fb []byte) (err error) {
 	N++
+
 	varN := fmt.Sprintf("bf%d", N)
 
-	if zip {
-		w := gzip.NewWriter(&b)
-		w.Write(fb)
-		w.Close()
-		l = int64(len(b.Bytes()))
+	cb := compressed(fb)
+	csize := int64(len(cb))
+
+	_, err = fmt.Fprintf(file, "var __%s = []byte(\"%s\")\n\n", varN, convert(fb))
+	_, err = fmt.Fprintf(file, "func _%s() []byte {\n return __%s\n }\n\n", varN, varN)
+
+	if f.Size() > csize {
+		_, err = fmt.Fprintf(file, "var __c%s = []byte(\"%s\")\n\n", varN, convert(cb))
+		_, err = fmt.Fprintf(file, "func _c%s() []byte {\n return __c%s\n }\n\n", varN, varN)
 	} else {
-		b = *bytes.NewBuffer(fb)
-		l = f.Size()
+		_, err = fmt.Fprintf(file, "func _c%s() []byte {\n return __%s\n }\n\n", varN, varN)
+		csize = 0
 	}
 
-	if l <= f.Size() {
-		_, err = fmt.Fprintf(file, "var _%s = []byte(\"%s\")\n\n", varN, convert(b.Bytes()))
-		_, err = fmt.Fprintf(file, "func %s() []byte {\n return _%s\n }\n\n", varN, varN)
-
-		files[path] = File{varN, l, f.ModTime()}
-	}
+	files[path] = File{varN, f.Size(), csize, f.ModTime()}
 
 	return
+}
+
+func compressed(src []byte) []byte {
+	var b bytes.Buffer
+	gz := gzip.NewWriter(&b)
+	gz.Write(src)
+	gz.Close()
+	return b.Bytes()
 }
 
 func convert(b []byte) string {
