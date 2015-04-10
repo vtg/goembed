@@ -223,11 +223,11 @@ func addFile(f os.FileInfo, path string, fb []byte) (err error) {
 		csize = int64(len(cb))
 	}
 
-	_, err = fmt.Fprintf(file, "var __%s = []byte(\"%s\")\n\n", varN, convert(fb))
+	_, err = fmt.Fprintf(file, "var __%s = []byte(%s)\n\n", varN, convert(fb))
 	_, err = fmt.Fprintf(file, "func _%s() []byte {\n return __%s\n }\n\n", varN, varN)
 
 	if f.Size() > csize {
-		_, err = fmt.Fprintf(file, "var __c%s = []byte(\"%s\")\n\n", varN, convert(cb))
+		_, err = fmt.Fprintf(file, "var __c%s = []byte(%s)\n\n", varN, convert(cb))
 		_, err = fmt.Fprintf(file, "func _c%s() []byte {\n return __c%s\n }\n\n", varN, varN)
 	} else {
 		_, err = fmt.Fprintf(file, "func _c%s() []byte {\n return __%s\n }\n\n", varN, varN)
@@ -248,6 +248,5 @@ func compressed(src []byte) []byte {
 }
 
 func convert(b []byte) string {
-	s := fmt.Sprintf("%#x", b)
-	return strings.Replace(s, "0x", "\\x", -1)
+	return fmt.Sprintf("%q", string(b))
 }
