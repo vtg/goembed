@@ -72,7 +72,7 @@ func createFuncFile() {
       "time"
     )
 
-    type assetFile struct {
+    type File struct {
       // contains plain data
       pdata func() []byte
       // contains compressed data
@@ -85,12 +85,12 @@ func createFuncFile() {
       time  int64
     }
 
-    func (e *assetFile) ModTime() time.Time {
+    func (e *File) ModTime() time.Time {
       return time.Unix(e.time, 0)
     }
 
     // Size returns size of file data
-    func (e *assetFile) Size(comp bool) string {
+    func (e *File) Size(comp bool) string {
       if comp {
         return fmt.Sprint(e.csize)
       }
@@ -98,14 +98,14 @@ func createFuncFile() {
     }
 
     // Comp returns true if file has compressed version
-    func (e *assetFile) Comp() bool {
+    func (e *File) Comp() bool {
       return e.csize > 0
     }
 
-    type assetFS map[string]*assetFile
+    type FS map[string]*File
 
     // Open returns asset file or error if not found
-    func (fs assetFS) Open(name string) (*assetFile, error) {
+    func (fs FS) Open(name string) (*File, error) {
       i, ok := fs[name]
       if !ok {
         return nil, fmt.Errorf("%s not found", name)
@@ -114,30 +114,30 @@ func createFuncFile() {
       return i, nil
     }
 
-    // Asset returns asset file plain data or error if not found
-    func Asset(name string) ([]byte, error) {
-      f, err := _bindata.Open(name)
+    // Plain returns asset file plain data or error if not found
+    func Plain(name string) ([]byte, error) {
+      f, err := Data.Open(name)
       if err != nil {
         return nil, err
       }
       return f.pdata(), nil
     }
 
-    // AssetZip returns asset file compressed data or error if not found
-    func AssetZip(name string) ([]byte, error) {
-      f, err := _bindata.Open(name)
+    // Zip returns asset file compressed data or error if not found
+    func Zip(name string) ([]byte, error) {
+      f, err := Data.Open(name)
       if err != nil {
         return nil, err
       }
       return f.cdata(), nil
     }
 
-    // serveAssets returns handler function for assets in given directory
-    func serveAssets(prefix string) func(w http.ResponseWriter, r *http.Request) {
+    // Serve returns handler function for assets in given directory
+    func Serve(prefix string) func(w http.ResponseWriter, r *http.Request) {
       return func(w http.ResponseWriter, r *http.Request) {
         name := prefix + r.URL.Path
 
-        f, err := _bindata.Open(name)
+        f, err := Data.Open(name)
 
         if err != nil {
           http.NotFound(w, r)
@@ -171,7 +171,7 @@ func createFuncFile() {
       }
     }
   `)
-	fmt.Fprintln(file, "var _bindata = assetFS{")
+	fmt.Fprintln(file, "var Data = FS{")
 
 	keys := make([]string, 0, len(files))
 	for k := range files {
@@ -181,7 +181,7 @@ func createFuncFile() {
 
 	for _, k := range keys {
 		v := files[k]
-		fmt.Fprintf(file, "\"%s\": &assetFile{_%s, _c%s, %d, %d, %v},\n", k, v.Func, v.Func, v.Size, v.CSize, v.Time.Unix())
+		fmt.Fprintf(file, "\"%s\": &File{_%s, _c%s, %d, %d, %v},\n", k, v.Func, v.Func, v.Size, v.CSize, v.Time.Unix())
 	}
 	fmt.Fprintln(file, "}")
 	exec.Command("gofmt", "-w", name).Output()
